@@ -189,7 +189,8 @@
     });
 
     m.rosters = toObjects(raw.Rosters).map((r) => ({
-      event: r.Event, game: normGame(r.Game), team: r.Team, name: r.Name, id: r["Discord ID"], sub: isTrue(r.Sub),
+      // A roster cell can list several games, e.g. "Valorant, Marvel Rivals, OverWatch".
+      event: r.Event, game: normGame(r.Game), games: splitList(r.Game).map(normGame), team: r.Team, name: r.Name, id: r["Discord ID"], sub: isTrue(r.Sub),
     }));
     m.subs = new Set(m.rosters.filter((r) => r.sub).map((r) => `${r.event}|${r.id}`));
 
@@ -279,6 +280,90 @@
       ? rows.map((r, i) => `<li><span class="rank">${i + 1}</span><span class="who"><a href="#/player/${encodeURIComponent(r.id)}">${esc(M.name(r.id, r.ign))}</a>${event === "all" ? `<span class="meta">${r.events} ev</span>` : ""}</span><span class="val">${fmt(r.value, cfg.category, head)}</span></li>`).join("")
       : `<li class="empty">No stats yet.</li>`;
     return `<div class="card lb"><h3>${esc(cfg.category)}${note ? `<small>${note}</small>` : ""}</h3><ol>${items}</ol></div>`;
+  }
+
+  // ---------- per-game stat lists (the same stats the Discord bot's /stats shows) ----------
+  // kind: "sum" adds up across events, "avg" is a per-map average (weighted by maps),
+  // "kd" is kills / deaths and "kda" is (kills + assists) / deaths, both recalculated from the totals.
+  const GAME_STATS = {
+    "Valorant": {
+      start: (h) => h.indexOf("ACS"),
+      fields: [["ACS", "avg"], ["K", "sum"], ["D", "sum"], ["A", "sum"], ["+/-", "sum"], ["K/D", "kd"], ["DDΔ", "avg"],
+        ["ADR", "avg"], ["HS%", "avg"], ["KAST", "avg"], ["FK", "avg"], ["FD", "avg"], ["MK", "sum"]],
+      kda: ["K", "D", "A"],
+    },
+    "Marvel Rivals": {
+      start: (h) => h.indexOf("Kills"),
+      fields: [["Kills", "sum"], ["Deaths", "sum"], ["Assists", "sum"], ["Most Damage", "sum"], ["Most Kills", "sum"],
+        ["Most Damaged Blocked", "sum"], ["Most Healing", "sum"], ["Most Assists", "sum"], ["3k", "sum"], ["4k", "sum"],
+        ["5k", "sum"], ["6k", "sum"], ["Final Hits", "sum"], ["Damage", "sum"], ["Damage Blocked", "sum"],
+        ["Healing", "sum"], ["AVG Accuracy", "avg"], ["MVP/SVP", "sum"]],
+      kda: ["Kills", "Deaths", "Assists"],
+    },
+    "League Of Legends": {
+      start: (h) => h.lastIndexOf("Kills"),
+      fields: [["Kills", "sum"], ["Deaths", "sum"], ["Assists", "sum"], ["KDA", "kda"], ["Avg Damage", "avg"], ["Avg Gold", "avg"]],
+      kda: ["Kills", "Deaths", "Assists"],
+    },
+  };
+
+  // Column positions for one game's stats. Games reuse names like "Kills", so each
+  // game's fields are looked up only inside its own block of columns.
+  const fieldCache = {};
+  function gameFields(game) {
+    if (fieldCache[game]) return fieldCache[game];
+    const head = M.statHead;
+    const spec = GAME_STATS[game];
+    if (!spec) return (fieldCache[game] = []);
+    const starts = Object.values(GAME_STATS).map((g) => g.start(head)).filter((i) => i >= 0).sort((a, b) => a - b);
+    const start = spec.start(head);
+    const end = starts.find((i) => i > start) ?? head.length;
+    fieldCache[game] = spec.fields.map(([name, kind]) => {
+      const col = head.indexOf(name, start);
+      return { name, kind, col: col >= 0 && col < end ? col : -1 };
+    }).filter((f) => f.col >= 0);
+    return fieldCache[game];
+  }
+
+  const total = (rows, f) => {
+    const vals = rows.map((s) => num(s.cells[f.col])).filter(isFinite);
+    return vals.length ? vals.reduce((t, v) => t + v, 0) : NaN;
+  };
+  function careerValue(f, rows, fields) {
+    const byName = (n) => fields.find((x) => x.name === n);
+    if (f.kind === "sum") return total(rows, f);
+    if (f.kind === "kd" || f.kind === "kda") {
+      const [k, d, a] = (GAME_STATS[rows[0].game] || {}).kda || [];
+      const kills = byName(k) ? total(rows, byName(k)) : NaN;
+      const deaths = byName(d) ? total(rows, byName(d)) : NaN;
+      const assists = byName(a) ? total(rows, byName(a)) : NaN;
+      if (!(deaths > 0)) return NaN;
+      return f.kind === "kd" ? kills / deaths : (kills + assists) / deaths;
+    }
+    const vals = rows.map((s) => [num(s.cells[f.col]), s.maps || 1]).filter(([v]) => isFinite(v));
+    const weight = vals.reduce((t, [, w]) => t + w, 0);
+    return weight ? vals.reduce((t, [v, w]) => t + v * w, 0) / weight : NaN;
+  }
+
+  // The bot's "Career Summary": maps, kills/deaths/assists, K/D or KDA and per-map rates.
+  function careerSummary(game, rows, fields) {
+    const spec = GAME_STATS[game];
+    if (!spec) return [];
+    const f = (n) => fields.find((x) => x.name === n);
+    const [k, d, a] = spec.kda;
+    const kills = f(k) ? total(rows, f(k)) : NaN;
+    const deaths = f(d) ? total(rows, f(d)) : NaN;
+    const assists = f(a) ? total(rows, f(a)) : NaN;
+    const maps = rows.reduce((t, s) => t + (s.maps || 0), 0);
+    const out = [["Maps", maps || "–"], ["Kills", fmt(kills)], ["Deaths", fmt(deaths)], ["Assists", fmt(assists)]];
+    if (game === "League Of Legends") out.push(["KDA", fmt(deaths > 0 ? (kills + assists) / deaths : NaN)]);
+    else out.push(["K/D", fmt(deaths > 0 ? kills / deaths : NaN)]);
+    if (game === "Marvel Rivals") {
+      ["Final Hits", "Damage", "Damage Blocked", "Healing", "MVP/SVP"].forEach((n) => f(n) && out.push([n, fmt(total(rows, f(n)))]));
+    } else if (maps) {
+      out.push(["Kills / map", fmt(kills / maps)], ["Deaths / map", fmt(deaths / maps)], ["Assists / map", fmt(assists / maps)]);
+    }
+    return out;
   }
 
   // ---------- pages ----------
@@ -389,26 +474,31 @@
       return `<div class="card history-row">
         <a href="#/event/${encodeURIComponent(ev ? ev.code : r.event)}">${esc(r.event)}</a>
         <span class="team">${teamDot(r.event, r.team)}<span>${esc(r.team)}</span>${r.sub ? '<span class="sub-tag">Sub</span>' : ""}</span>
-        <span class="game-slot">${gameChip(r.game)}</span>
+        <span class="game-slot">${(r.games.length ? r.games : [r.game]).map(gameChip).join("")}</span>
         <span class="champ-slot">${placeChip(place, true)}</span>
       </div>`;
     }).join("");
 
     const games = [...new Set(M.stats.filter((s) => s.id === id).map((s) => s.game))];
     const statTables = games.map((g) => {
-      const cfgs = M.lbConfig.filter((c) => c.game === g && !c.perRound);
       const rows = M.stats.filter((s) => s.id === id && s.game === g).sort((a, b) => M.eventOrder(a.event) - M.eventOrder(b.event));
-      const cell = (c, v) => `<td>${fmt(v, c.category, M.statHead[c.col - 1])}</td>`;
-      const body = rows.map((s) => `<tr><td>${esc(s.event)}${s.sub ? ' <span class="sub-tag">Sub</span>' : ""}</td><td>${s.maps || "–"}</td>${cfgs.map((c) => cell(c, num(s.cells[c.col - 1]))).join("")}</tr>`).join("");
-      const totMaps = rows.reduce((t, s) => t + (s.maps || 1), 0);
-      const career = cfgs.map((c) => {
-        const vals = rows.map((s) => [num(s.cells[c.col - 1]), s.maps || 1]).filter(([v]) => isFinite(v));
-        const v = RATIO.test(c.category) ? vals.reduce((t, [x, w]) => t + x * w, 0) / vals.reduce((t, [, w]) => t + w, 0) : vals.reduce((t, [x]) => t + x, 0);
-        return cell(c, v);
-      }).join("");
-      return `<div class="section"><h3>${gameChip(g)}</h3><div class="table-scroll"><table>
-        <thead><tr><th>Event</th><th>Maps</th>${cfgs.map((c) => `<th>${esc(c.category)}</th>`).join("")}</tr></thead>
-        <tbody>${body}${rows.length > 1 ? `<tr class="career"><td>Career</td><td>${totMaps}</td>${career}</tr>` : ""}</tbody></table></div></div>`;
+      const fields = gameFields(g);
+      const titles = new Set(rows.filter((s) => M.placement(s.event, s.team) === 1).map((s) => s.event)).size;
+      const summary = careerSummary(g, rows, fields)
+        .map(([label, value]) => `<div class="sum-item"><span class="sum-label">${esc(label)}</span><span class="sum-value num">${value}</span></div>`).join("");
+      const body = rows.map((s) => `<tr><td>${esc(s.event)}${s.sub ? ' <span class="sub-tag">Sub</span>' : ""}</td><td>${s.maps || "–"}</td>${fields.map((f) => `<td>${fmt(num(s.cells[f.col]), f.name)}</td>`).join("")}</tr>`).join("");
+      const career = fields.map((f) => `<td>${fmt(careerValue(f, rows, fields), f.name)}</td>`).join("");
+      const totMaps = rows.reduce((t, s) => t + (s.maps || 0), 0);
+      return `<div class="section">
+        <h3>${gameChip(g)}</h3>
+        <div class="career-summary">
+          <div class="sum-item"><span class="sum-label">Events</span><span class="sum-value num">${rows.length}</span></div>
+          <div class="sum-item"><span class="sum-label">Championships</span><span class="sum-value num">${titles}</span></div>
+          ${summary}
+        </div>
+        <div class="table-scroll"><table>
+        <thead><tr><th>Event</th><th>Maps</th>${fields.map((f) => `<th>${esc(f.name)}</th>`).join("")}</tr></thead>
+        <tbody>${body}${rows.length > 1 ? `<tr class="career"><td>Career</td><td>${totMaps || "–"}</td>${career}</tr>` : ""}</tbody></table></div></div>`;
     }).join("");
 
     return `
