@@ -467,14 +467,26 @@
   function pagePlayer(id) {
     const p = M.players.get(id);
     if (!p) return `<p class="muted">That player isn't on the list. <a href="#/players">Back to players</a></p>`;
-    const history = M.rosters.filter((r) => r.id === id).sort((a, b) => M.eventOrder(a.event) - M.eventOrder(b.event));
+    // One line per event: a player who played several games at the same event
+    // (e.g. Clash 5 Valorant and Marvel Rivals) gets one line with every game listed.
+    const byEvent = new Map();
+    M.rosters.filter((r) => r.id === id).forEach((r) => {
+      const e = byEvent.get(r.event) || { event: r.event, teams: [], games: [], sub: false };
+      if (!e.teams.includes(r.team)) e.teams.push(r.team);
+      (r.games.length ? r.games : [r.game]).forEach((g) => { if (!e.games.includes(g)) e.games.push(g); });
+      e.sub = e.sub || r.sub;
+      byEvent.set(r.event, e);
+    });
+    const history = [...byEvent.values()].sort((a, b) => M.eventOrder(a.event) - M.eventOrder(b.event));
     const histRows = history.map((r) => {
       const ev = M.eventByName.get(r.event);
-      const place = M.placement(r.event, r.team);
+      const places = r.teams.map((t) => M.placement(r.event, t)).filter(Boolean);
+      const place = places.length ? Math.min(...places) : 0;
+      const teams = r.teams.map((t) => `${teamDot(r.event, t)}<span>${esc(t)}</span>`).join("");
       return `<div class="card history-row">
         <a href="#/event/${encodeURIComponent(ev ? ev.code : r.event)}">${esc(r.event)}</a>
-        <span class="team">${teamDot(r.event, r.team)}<span>${esc(r.team)}</span>${r.sub ? '<span class="sub-tag">Sub</span>' : ""}</span>
-        <span class="game-slot">${(r.games.length ? r.games : [r.game]).map(gameChip).join("")}</span>
+        <span class="team">${teams}${r.sub ? '<span class="sub-tag">Sub</span>' : ""}</span>
+        <span class="game-slot">${r.games.map(gameChip).join("")}</span>
         <span class="champ-slot">${placeChip(place, true)}</span>
       </div>`;
     }).join("");
