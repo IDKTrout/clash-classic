@@ -48,6 +48,23 @@ main.wrap { flex: 1; padding-block: 28px 56px; display: flex; flex-direction: co
 .nav a:hover { color: var(--text); background: var(--surface); }
 .nav a.active { color: var(--text); background: var(--surface-2); }
 .nav a.nav-cta { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.nav-auth { display: flex; gap: 4px; align-items: center; }
+.nav-auth a { text-decoration: none; padding: 7px 12px; border-radius: var(--radius-sm); color: var(--muted); font-weight: 500; }
+.nav-auth a:hover, .nav-auth a.active { color: var(--text); background: var(--surface-2); }
+.nav-login, .nav-logout { font: inherit; font-weight: 600; cursor: pointer; border-radius: var(--radius-sm); padding: 7px 12px; }
+.nav-login { background: var(--discord); color: #fff; border: 1px solid var(--discord); }
+.nav-logout { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.nav-logout:hover { color: var(--text); }
+button.btn { font: inherit; font-weight: 600; cursor: pointer; color: var(--text); }
+.btn-discord, button.btn-discord { background: var(--discord); border-color: var(--discord); color: #fff; }
+
+/* ---- Sign-ups ---- */
+.signup { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.signup-alt { color: var(--muted); font-size: .9rem; }
+.signup-alt:hover { color: var(--text); }
+.signup-count { color: var(--muted); font-size: .9rem; }
+.signup-count:empty { display: none; }
+.card-signup { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
 /* ---- Footer ---- */
 .footer { border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); }

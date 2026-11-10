@@ -69,6 +69,94 @@
   // ---------- data model ----------
   let M = null;
   let currentLbGame = "";
+
+  // ---------- Discord login (Supabase) ----------
+  const sb = window.supabase && CFG.supabaseUrl && CFG.supabaseKey
+    ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey, { auth: { flowType: "pkce", detectSessionInUrl: true, persistSession: true } })
+    : null;
+  let me = null; // { id, name, username } of the logged-in Discord user
+
+  function readUser(user) {
+    if (!user) return null;
+    const ident = (user.identities || []).find((i) => i.provider === "discord");
+    const idata = (ident && ident.identity_data) || {};
+    const md = user.user_metadata || {};
+    const id = idata.provider_id || idata.sub || md.provider_id || md.sub || "";
+    const username = String(md.name || idata.name || "").replace(/#0$/, "");
+    const name = (md.custom_claims && md.custom_claims.global_name) || md.full_name || username || "Player";
+    return id ? { id: String(id), name, username } : null;
+  }
+
+  async function login() {
+    if (!sb) return;
+    try { sessionStorage.setItem("clash-return", location.hash || "#/"); } catch (e) { /* storage blocked */ }
+    const { error } = await sb.auth.signInWithOAuth({ provider: "discord", options: { redirectTo: location.origin + location.pathname } });
+    if (error) alertBox(`Couldn't start Discord login: ${error.message}`);
+  }
+  async function logout() {
+    if (sb) await sb.auth.signOut();
+    me = null; renderAuth(); route();
+  }
+  function alertBox(msg) {
+    const div = document.createElement("div");
+    div.className = "error"; div.textContent = msg;
+    app.prepend(div);
+  }
+
+  function renderAuth() {
+    const slot = document.getElementById("nav-auth");
+    if (!slot) return;
+    if (!sb) { slot.innerHTML = ""; return; }
+    slot.innerHTML = me
+      ? `<a href="#/me" data-nav="me">My profile</a><button class="nav-logout" type="button" data-action="logout">Log out</button>`
+      : `<button class="nav-login" type="button" data-action="login">Log in with Discord</button>`;
+  }
+
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-action]");
+    if (!btn) return;
+    if (btn.dataset.action === "login") { ev.preventDefault(); login(); }
+    if (btn.dataset.action === "logout") { ev.preventDefault(); logout(); }
+  });
+
+  // ---------- event sign-ups ----------
+  const isPastEvent = (e) => e.canceled || !!e.winner || /finish|cancel/i.test(e.status);
+  function nextEvent() {
+    const future = M.events.filter((e) => !isPastEvent(e));
+    return future.find((e) => /upcoming/i.test(e.status)) || future[0] || null;
+  }
+  // The event's Tally link with hidden fields filled in, so each response carries the event and Discord ID.
+  function signupLink(e, withUser) {
+    try {
+      const u = new URL(e.signupUrl);
+      u.searchParams.set("event", e.code);
+      if (withUser && me) { u.searchParams.set("discord_id", me.id); u.searchParams.set("discord_username", me.username); }
+      return u.toString();
+    } catch (err) { return e.signupUrl; }
+  }
+  function signupBlock(e) {
+    if (!e || !e.signupUrl) return "";
+    let main;
+    if (me) main = `<a class="btn btn-primary" href="${esc(signupLink(e, true))}" target="_blank" rel="noopener" data-signup-btn="${esc(e.code)}">Sign up for ${esc(e.name)}</a>`;
+    else if (sb) main = `<button class="btn btn-primary btn-discord" type="button" data-action="login">Log in with Discord to sign up</button>`;
+    else main = `<a class="btn btn-primary" href="${esc(signupLink(e, false))}" target="_blank" rel="noopener">Sign up for ${esc(e.name)}</a>`;
+    const alt = !me && sb ? `<a class="signup-alt" href="${esc(signupLink(e, false))}" target="_blank" rel="noopener">or sign up without logging in</a>` : "";
+    return `<div class="signup">${main}${alt}<span class="signup-count" data-count="${esc(e.code)}"></span></div>`;
+  }
+  // Fill in sign-up counts and "already signed up" states after a page renders.
+  async function fillSignupInfo() {
+    if (!sb) return;
+    for (const el of app.querySelectorAll("[data-count]")) {
+      const { data, error } = await sb.rpc("signup_count", { p_event: el.dataset.count });
+      if (error || typeof data !== "number") continue;
+      el.textContent = data === 0 ? "Be the first to sign up" : `${data} ${data === 1 ? "player" : "players"} signed up`;
+    }
+    if (!me) return;
+    for (const btn of app.querySelectorAll("[data-signup-btn]")) {
+      const { data } = await sb.rpc("is_signed_up", { p_event: btn.dataset.signupBtn });
+      if (data === true) { btn.textContent = "You're signed up (edit your answers)"; btn.classList.remove("btn-primary"); }
+    }
+  }
   async function load() {
     const raw = Object.fromEntries(await Promise.all(TABS.map(async (t) => [t, await fetchTab(t)])));
     const m = {};
@@ -76,7 +164,7 @@
     m.events = toObjects(raw.Events).map((e, i) => ({
       order: i, code: e.Code, name: e.Event, games: splitList(e.Game).map(normGame), dates: e.Dates,
       status: e.Status, winner: e["Winning Team"], notes: e.Notes, canceled: isTrue(e.Canceled),
-      runnerUp: e["Runner Up"] || "", third: e["Third Place"] || "",
+      runnerUp: e["Runner Up"] || "", third: e["Third Place"] || "", signupUrl: e["Sign Up Link"] || "",
     }));
     // 1 = champions, 2 = runner up, 3 = third place, 0 = no placement.
     m.placement = (eventName, team) => {
@@ -197,8 +285,8 @@
   function pageHome() {
     const finished = M.events.filter((e) => /finish/i.test(e.status));
     const latest = finished[finished.length - 1];
-    const upcoming = M.events.find((e) => /upcoming/i.test(e.status));
-    const signup = CFG.signupUrl ? `<a class="btn btn-primary" href="${esc(CFG.signupUrl)}" target="_blank" rel="noopener">Sign up for ${esc(upcoming ? upcoming.name : "the next Clash")}</a>` : "";
+    const upcoming = nextEvent();
+    const signup = signupBlock(upcoming);
     const latestColor = latest ? M.teamColor(latest.name, latest.winner) : "";
 
     const featured = M.games.map((g) => {
@@ -213,8 +301,8 @@
         <span class="eyebrow">Community tournaments</span>
         <h1>${esc(CFG.siteName || "Clash Classic")}</h1>
         <p>${esc(CFG.tagline || "")}</p>
+        ${signup}
         <div class="hero-actions">
-          ${signup}
           <a class="btn ${signup ? "" : "btn-primary"}" href="#/leaderboards">View leaderboards</a>
           <a class="btn" href="#/events">Past events</a>
         </div>
@@ -341,10 +429,8 @@
 
   // Past events (finished, canceled, or already have a winner) plus only the next upcoming one.
   function visibleEvents() {
-    const isPast = (e) => e.canceled || !!e.winner || /finish|cancel/i.test(e.status);
-    const future = M.events.filter((e) => !isPast(e));
-    const next = future.find((e) => /upcoming/i.test(e.status)) || future[0];
-    return M.events.filter((e) => isPast(e) || e === next);
+    const next = nextEvent();
+    return M.events.filter((e) => isPastEvent(e) || e === next);
   }
 
   function pageEvents() {
@@ -358,6 +444,7 @@
           <h3>${esc(e.name)}</h3>
           <div class="chips">${e.games.map(gameChip).join("")}</div>
           <div class="muted">${esc(e.dates)}</div>
+          ${!isPastEvent(e) && e.signupUrl ? `<div class="card-signup"><span class="chip status-upcoming">Sign-ups open</span><span class="signup-count" data-count="${esc(e.code)}"></span></div>` : ""}
           ${e.winner ? `<ol class="podium">${[e.winner, e.runnerUp, e.third].map((t, i) => t ? `<li class="podium-${i + 1}"><span class="podium-rank">${["1st", "2nd", "3rd"][i]}</span>${teamDot(e.name, t)}<span>${esc(t)}</span></li>` : "").join("")}</ol>` : ""}
         </a>`;
       }).join("")}</section>`;
@@ -388,9 +475,28 @@
         <h1>${esc(e.name)}</h1>
         <div class="muted">${esc(e.dates)}</div>
         ${e.notes ? `<p class="muted">${esc(e.notes)}</p>` : ""}
+        ${e === nextEvent() ? signupBlock(e) : ""}
       </section>
       ${leaders ? `<section class="section"><h2>Top performers</h2>${leaders}</section>` : ""}
       <section class="section"><h2>Teams</h2>${teamCards ? `<div class="grid">${teamCards}</div>` : '<p class="muted">Rosters haven\'t been posted yet.</p>'}</section>`;
+  }
+
+  function pageMe() {
+    if (!sb) return `<p class="muted">Discord login isn't set up on this site yet.</p>`;
+    if (!me) return `
+      <section class="profile-head">
+        <h1>My profile</h1>
+        <p class="muted">Log in with Discord to see your Clash stats and sign up for events.</p>
+        <div><button class="btn btn-primary btn-discord" type="button" data-action="login">Log in with Discord</button></div>
+      </section>`;
+    if (M.players.has(me.id)) return pagePlayer(me.id);
+    const next = nextEvent();
+    return `
+      <section class="profile-head">
+        <h1>Welcome, ${esc(me.name)}</h1>
+        <p class="muted">You don't have any Clash stats yet. Once you've played in an event, your profile shows up here.</p>
+        ${next && next.signupUrl ? signupBlock(next) : `<p class="muted">Sign-ups for the next Clash aren't open yet.</p>`}
+      </section>`;
   }
 
   // ---------- router ----------
@@ -405,12 +511,15 @@
       case "player": html = pagePlayer(parts[1]); break;
       case "events": html = pageEvents(); break;
       case "event": html = pageEvent(parts[1]); break;
+      case "me": html = pageMe(); break;
       default: html = pageHome();
     }
     app.innerHTML = html;
-    const navKey = { player: "players", event: "events" }[page] || page;
+    const ownProfile = me && page === "player" && parts[1] === me.id;
+    const navKey = ownProfile ? "me" : ({ player: "players", event: "events" }[page] || page);
     document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === navKey));
     window.scrollTo(0, 0);
+    fillSignupInfo();
 
     if (page === "players") {
       renderPlayerGrid();
@@ -427,11 +536,33 @@
   // ---------- start ----------
   document.querySelectorAll("[data-site-name]").forEach((el) => { el.textContent = CFG.siteName || "Clash Classic"; });
   document.title = CFG.siteName || "Clash Classic";
-  if (CFG.signupUrl) { const a = document.getElementById("nav-signup"); a.href = CFG.signupUrl; a.hidden = false; }
   if (CFG.discordInvite) { const a = document.getElementById("footer-discord"); a.href = CFG.discordInvite; a.hidden = false; }
   window.addEventListener("hashchange", route);
+  renderAuth();
 
-  load().then((m) => { M = m; route(); }).catch((err) => {
+  // After Discord sends the player back, tidy the address bar and return them to the page they were on.
+  function afterLogin() {
+    if (/[?&](code|error)=/.test(location.search)) history.replaceState(null, "", location.pathname + location.hash);
+    let back = null;
+    try { back = sessionStorage.getItem("clash-return"); sessionStorage.removeItem("clash-return"); } catch (e) { /* storage blocked */ }
+    if (back && back !== location.hash) location.hash = back;
+  }
+  if (sb) {
+    sb.auth.onAuthStateChange((event, session) => {
+      const next = readUser(session && session.user);
+      const changed = (next && next.id) !== (me && me.id);
+      me = next;
+      if (event === "SIGNED_IN" && changed) afterLogin();
+      if (changed) { renderAuth(); route(); }
+    });
+  }
+
+  load().then((m) => {
+    M = m;
+    const next = nextEvent();
+    if (next && next.signupUrl) { const a = document.getElementById("nav-signup"); a.href = `#/event/${encodeURIComponent(next.code)}`; a.hidden = false; }
+    route();
+  }).catch((err) => {
     console.error(err);
     app.innerHTML = `<div class="error"><strong>Couldn't load the stats.</strong><p>${esc(err.message)}</p></div>`;
   });

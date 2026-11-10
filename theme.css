@@ -23,6 +23,7 @@
   --good:        #4fd18b;   /* "Finished", wins */
   --warn:        #ffb43a;   /* "Upcoming" */
   --bad:         #ff6b7a;   /* "Canceled" */
+  --discord:     #5865f2;   /* "Log in with Discord" buttons */
 
   /* Game colours (chips and tabs) */
   --game-valorant: #ff4655;
