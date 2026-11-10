@@ -38,7 +38,7 @@ On GitHub you can edit a file in the browser: open it, click the pencil icon, ch
 
 ## Preview it on your computer
 
-From this folder, run `python -m http.server 8765` and open http://localhost:8765. Opening `index.html` by double-clicking won't load the stats.
+From this folder, run `python -m http.server 8766` and open http://localhost:8765. Opening `index.html` by double-clicking won't load the stats.
 
 ## Later: Discord login and sign-ups
 
