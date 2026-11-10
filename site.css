@@ -174,7 +174,18 @@ tr.career td { font-weight: 700; background: color-mix(in srgb, var(--accent) 8%
 .team-card li { display: flex; justify-content: space-between; gap: 8px; }
 .team-card li a { text-decoration: none; }
 .team-card li a:hover { color: var(--accent); }
-.winner-badge { --chip: var(--gold); }
+.winner-badge, .place-1 { --chip: var(--gold); }
+.place-2 { --chip: var(--silver); }
+.place-3 { --chip: var(--bronze); }
+.podium { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.podium li { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.podium li span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.podium-rank { font-family: var(--font-display); font-weight: 700; font-size: .8rem; width: 2.2em; flex: none; }
+.podium-1 { font-weight: 600; }
+.podium-1 .podium-rank { color: var(--gold); }
+.podium-2 .podium-rank { color: var(--silver); }
+.podium-3 .podium-rank { color: var(--bronze); }
+.podium-2, .podium-3 { color: var(--muted); font-size: .9rem; }
 
 @media (max-width: 560px) {
   .history-row { grid-template-columns: auto auto 1fr; gap: 6px 8px; }

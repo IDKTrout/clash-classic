@@ -76,7 +76,14 @@
     m.events = toObjects(raw.Events).map((e, i) => ({
       order: i, code: e.Code, name: e.Event, games: splitList(e.Game).map(normGame), dates: e.Dates,
       status: e.Status, winner: e["Winning Team"], notes: e.Notes, canceled: isTrue(e.Canceled),
+      runnerUp: e["Runner Up"] || "", third: e["Third Place"] || "",
     }));
+    // 1 = champions, 2 = runner up, 3 = third place, 0 = no placement.
+    m.placement = (eventName, team) => {
+      const e = m.eventByName.get(eventName);
+      if (!e || !team) return 0;
+      return team === e.winner ? 1 : team === e.runnerUp ? 2 : team === e.third ? 3 : 0;
+    };
     m.eventByName = new Map(m.events.map((e) => [e.name, e]));
     m.eventOrder = (name) => (m.eventByName.get(name) || { order: 999 }).order;
 
@@ -128,6 +135,13 @@
   function teamDot(event, team) {
     const c = M.teamColor(event, team);
     return `<span class="team-dot"${c ? ` style="--team:${esc(c)}"` : ""}></span>`;
+  }
+
+  const PLACE_LABEL = { 1: "Champions", 2: "Runner-up", 3: "3rd place" };
+  function placeChip(n, singular) {
+    if (!n) return "";
+    const label = n === 1 && singular ? "Champion" : PLACE_LABEL[n];
+    return `<span class="chip place-${n}">${label}</span>`;
   }
 
   // ---------- leaderboard maths ----------
@@ -283,12 +297,12 @@
     const history = M.rosters.filter((r) => r.id === id).sort((a, b) => M.eventOrder(a.event) - M.eventOrder(b.event));
     const histRows = history.map((r) => {
       const ev = M.eventByName.get(r.event);
-      const won = ev && ev.winner && ev.winner === r.team;
+      const place = M.placement(r.event, r.team);
       return `<div class="card history-row">
         <a href="#/event/${encodeURIComponent(ev ? ev.code : r.event)}">${esc(r.event)}</a>
         <span class="team">${teamDot(r.event, r.team)}<span>${esc(r.team)}</span>${r.sub ? '<span class="sub-tag">Sub</span>' : ""}</span>
         <span class="game-slot">${gameChip(r.game)}</span>
-        <span class="champ-slot">${won ? '<span class="chip winner-badge">Champion</span>' : ""}</span>
+        <span class="champ-slot">${placeChip(place, true)}</span>
       </div>`;
     }).join("");
 
@@ -344,7 +358,7 @@
           <h3>${esc(e.name)}</h3>
           <div class="chips">${e.games.map(gameChip).join("")}</div>
           <div class="muted">${esc(e.dates)}</div>
-          ${e.winner ? `<div class="winner">${teamDot(e.name, e.winner)}${esc(e.winner)}</div>` : ""}
+          ${e.winner ? `<ol class="podium">${[e.winner, e.runnerUp, e.third].map((t, i) => t ? `<li class="podium-${i + 1}"><span class="podium-rank">${["1st", "2nd", "3rd"][i]}</span>${teamDot(e.name, t)}<span>${esc(t)}</span></li>` : "").join("")}</ol>` : ""}
         </a>`;
       }).join("")}</section>`;
   }
@@ -354,10 +368,11 @@
     if (!e) return `<p class="muted">Event not found. <a href="#/events">Back to events</a></p>`;
     const teams = new Map();
     M.rosters.filter((r) => r.event === e.name).forEach((r) => { if (!teams.has(r.team)) teams.set(r.team, []); teams.get(r.team).push(r); });
-    const teamOrder = [...teams.keys()].sort((a, b) => (b === e.winner) - (a === e.winner));
+    const rank = (t) => M.placement(e.name, t) || 9;
+    const teamOrder = [...teams.keys()].sort((a, b) => rank(a) - rank(b));
     const teamCards = teamOrder.map((t) => `
       <div class="card team-card" style="--team:${esc(M.teamColor(e.name, t))}">
-        <h3><span>${esc(t)}</span>${t === e.winner ? '<span class="chip winner-badge">Champions</span>' : ""}</h3>
+        <h3><span>${esc(t)}</span>${placeChip(M.placement(e.name, t))}</h3>
         <ul>${teams.get(t).map((r) => `<li><a href="#/player/${encodeURIComponent(r.id)}">${esc(M.name(r.id, r.name))}</a>${r.sub ? '<span class="sub-tag">Sub</span>' : ""}</li>`).join("")}</ul>
       </div>`).join("");
 
