@@ -1,0 +1,41 @@
+# Publishes the site to GitHub Pages on every change to main (including edits made on github.com).
+# Before publishing, it swaps "?v=dev" in index.html for this commit's ID, so browsers
+# fetch the new CSS, JS and images instead of reusing old copies.
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stamp file versions
+        run: sed -i "s/?v=dev/?v=${GITHUB_SHA::8}/g" index.html
+
+      - name: Collect the site files
+        run: |
+          mkdir _site
+          cp -r index.html app.js config.js site.css theme.css assets _site/
+          if [ -f CNAME ]; then cp CNAME _site/; fi
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+      - id: deployment
+        uses: actions/deploy-pages@v4
