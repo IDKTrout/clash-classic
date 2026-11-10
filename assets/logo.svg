@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+  <!-- Placeholder logo. Replace this file with the real one (SVG or PNG; update index.html if you change the file name). -->
+  <path d="M20 2 36 10v20L20 38 4 30V10z" fill="#ffb43a"/>
+  <path d="M26 14.5a8 8 0 1 0 0 11" fill="none" stroke="#1a1206" stroke-width="4" stroke-linecap="round"/>
+</svg>

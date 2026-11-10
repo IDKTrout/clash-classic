@@ -1,0 +1,46 @@
+/* ==========================================================================
+   CLASH CLASSIC THEME
+   Change the look of the whole site here. Every colour, font and image the
+   site uses comes from these variables. Artists: swap images in /assets and
+   point the variables below at them.
+   ========================================================================== */
+
+@import url("https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&display=swap");
+
+:root {
+  /* ---- Colours ---- */
+  --bg:          #0e0f1c;   /* page background */
+  --surface:     #161829;   /* cards, tables */
+  --surface-2:   #1e2136;   /* hover, table header */
+  --line:        #2b2f4a;   /* borders, dividers */
+  --text:        #eceefb;   /* main text */
+  --muted:       #9095b8;   /* secondary text */
+  --accent:      #ffb43a;   /* buttons, highlights, active tab */
+  --accent-ink:  #1a1206;   /* text on top of --accent */
+  --gold:        #ffcc4d;
+  --silver:      #c9d0e0;
+  --bronze:      #d98b52;
+  --good:        #4fd18b;   /* "Finished", wins */
+  --warn:        #ffb43a;   /* "Upcoming" */
+  --bad:         #ff6b7a;   /* "Canceled" */
+
+  /* Game colours (chips and tabs) */
+  --game-valorant: #ff4655;
+  --game-rivals:   #f2c14e;
+  --game-league:   #3fb6c9;
+  --game-overwatch:#f99e1a;
+  --game-other:    #8a8fb5;
+
+  /* ---- Fonts ---- */
+  --font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;  /* headings */
+  --font-body:    "Inter", "Segoe UI", system-ui, sans-serif;         /* everything else */
+
+  /* ---- Images (replace the files in /assets, or change these paths) ---- */
+  --hero-image:   url("assets/hero.jpg");      /* home page banner, ~1920x700 */
+  --page-texture: none;                        /* e.g. url("assets/texture.png") */
+
+  /* ---- Shape ---- */
+  --radius:    10px;
+  --radius-sm: 6px;
+  --max-width: 1180px;
+}
