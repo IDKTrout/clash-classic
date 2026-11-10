@@ -18,6 +18,51 @@
   const isTrue = (v) => String(v).trim().toUpperCase() === "TRUE";
   const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   const splitList = (s) => String(s || "").split(",").map((x) => x.trim()).filter(Boolean);
+
+  // "Mar 20, 2027, Mar 21, 2027" -> "Mar 20-21, 2027"
+  // "Oct 3, 2026, Oct 4, 2026, Oct 10, 2026, Oct 11, 2026" -> "Oct 3-4 & 10-11, 2026"
+  // Anything that isn't a list of dates (like "No dates yet") is shown as written.
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function formatDates(text) {
+    const raw = String(text || "").trim();
+    const found = [...raw.matchAll(/([A-Za-z]{3})[a-z]*\.? (\d{1,2}), (\d{4})/g)];
+    if (!found.length || found.map((m) => m[0]).join(", ") !== raw.replace(/\s+/g, " ")) return raw;
+    const days = found.map((m) => new Date(Date.UTC(+m[3], MONTHS.indexOf(m[1][0].toUpperCase() + m[1].slice(1, 3).toLowerCase()), +m[2])));
+    if (days.some((d) => isNaN(d))) return raw;
+    days.sort((a, b) => a - b);
+    // Group back-to-back days into runs.
+    const runs = [];
+    days.forEach((d) => {
+      const last = runs[runs.length - 1];
+      if (last && d - last.end === 86400000) last.end = d;
+      else if (!last || d - last.end > 0) runs.push({ start: d, end: d });
+    });
+    const mon = (d) => MONTHS[d.getUTCMonth()];
+    const byYear = new Map();
+    runs.forEach((r, i) => {
+      const y = r.end.getUTCFullYear();
+      // A run across New Year needs both years: "Dec 31, 2026-Jan 1, 2027".
+      const key = r.start.getUTCFullYear() === y ? y : `span${i}`;
+      if (!byYear.has(key)) byYear.set(key, []);
+      byYear.get(key).push(r);
+    });
+    return [...byYear.entries()].map(([year, list]) => {
+      if (typeof year === "string") {
+        const r = list[0];
+        return `${mon(r.start)} ${r.start.getUTCDate()}, ${r.start.getUTCFullYear()}-${mon(r.end)} ${r.end.getUTCDate()}, ${r.end.getUTCFullYear()}`;
+      }
+      let prevMonth = null;
+      const parts = list.map((r) => {
+        const sm = mon(r.start), em = mon(r.end);
+        let s = (sm === prevMonth ? "" : sm + " ") + r.start.getUTCDate();
+        if (r.end > r.start) s += "-" + (em === sm ? "" : em + " ") + r.end.getUTCDate();
+        prevMonth = em;
+        return s;
+      });
+      const joined = parts.length === 2 ? parts.join(" & ") : parts.join(", ");
+      return `${joined}, ${year}`;
+    }).join("; ");
+  }
   const normGame = (g) => {
     const s = String(g).toLowerCase();
     if (s.includes("valorant")) return "Valorant";
@@ -162,7 +207,7 @@
     const m = {};
 
     m.events = toObjects(raw.Events).map((e, i) => ({
-      order: i, code: e.Code, name: e.Event, games: splitList(e.Game).map(normGame), dates: e.Dates,
+      order: i, code: e.Code, name: e.Event, games: splitList(e.Game).map(normGame), dates: formatDates(e.Dates),
       status: e.Status, winner: e["Winning Team"], notes: e.Notes, canceled: isTrue(e.Canceled),
       runnerUp: e["Runner Up"] || "", third: e["Third Place"] || "", signupUrl: e["Sign Up Link"] || "",
     }));
